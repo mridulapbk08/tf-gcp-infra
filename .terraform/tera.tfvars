@@ -1,0 +1,15 @@
+project_id               = "iacvpc"
+region                   = "us-central1"
+zone                     = "us-central1-c"
+my-personal-vpc-network  = "my-vpc-network"
+webapp-subnet            = "my-subnet-webapp"
+db-subnet                = "my-subnet-db"
+web_app_route            = "my-webapp-route"
+webapp_cidr              = "10.0.1.0/24"
+db_cidr                  = "10.0.0.0/24"
+webapp_route_cidr        = "0.0.0.0/0"
+auto_create_subnets      = false
+delete_default_routes    = true
+routing_mode             = "REGIONAL"
+private_ip_google_access = true
+next_hop_gateway         = "default-internet-gateway"
