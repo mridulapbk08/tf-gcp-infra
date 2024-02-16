@@ -51,3 +51,5 @@ resource "google_compute_route" "route" {
   priority         = 100
 }
 
+# run using  terraform plan -var-file="tera.tfvars" 
+#terraform apply -var-file="tera.tfvars" 
