@@ -13,17 +13,17 @@ variable "zone" {
   type        = string
 }
 
-variable "my-personal-vpc-network" {
+variable "my_personal_vpc_network" {
   description = "The name of the Virtual Private Cloud (VPC) network."
   type        = string
 }
 
-variable "webapp-subnet" {
+variable "webapp_subnet" {
   description = "The name of the subnet for the web application servers."
   type        = string
 }
 
-variable "db-subnet" {
+variable "db_subnet" {
   description = "The name of the subnet for the database servers."
   type        = string
 }
@@ -43,7 +43,7 @@ variable "db_cidr" {
   type        = string
 }
 
-variable "webapp_route_cidr" {
+variable "webapp_route_dest_range" {
   description = "The CIDR block for the route directing traffic to the web application subnet."
   type        = string
 }
@@ -71,4 +71,59 @@ variable "private_ip_google_access" {
 variable "next_hop_gateway" {
   description = "The next hop gateway used for routing traffic."
   type        = string
+}
+
+variable "firewall" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+variable "protocol" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+ 
+variable "instancesize" {
+  description = "The next hop gateway used for routing traffic."
+  type        = number
+}
+ 
+ 
+variable "instancetype" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+variable "instancemode" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+variable "instancemachinetype" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+variable "instancename" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+variable "instancenetworktier" {
+  description = "The next hop gateway used for routing traffic."
+  type        = string
+}
+ 
+ 
+ 
+variable "auto_delete" {
+  description = "The next hop gateway used for routing traffic."
+  type        = bool
 }
