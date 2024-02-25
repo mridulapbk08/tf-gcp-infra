@@ -57,7 +57,7 @@ resource "google_compute_firewall" "allow_application_traffic" {
  
   allow {
     protocol = var.protocol
-    ports    = ["5000","22"] // Replace "your-application-port" with the actual port number
+    ports    = ["5000"] // Replace "your-application-port" with the actual port number
   }
  
   source_ranges = ["0.0.0.0/0"] // Allows traffic from any IP
