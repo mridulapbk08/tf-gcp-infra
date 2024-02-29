@@ -57,26 +57,26 @@ resource "google_compute_firewall" "allow_application_traffic" {
  
   allow {
     protocol = var.protocol
-    ports    = ["5000"] // Replace "your-application-port" with the actual port number
+    ports    = ["5000","22"] 
   }
  
-  source_ranges = ["0.0.0.0/0"] // Allows traffic from any IP
+  source_ranges = ["0.0.0.0/0"] 
   target_tags   = ["http-server", "https-server"]
  
 }
  
-resource "google_compute_firewall" "deny_ssh" {
-  name    = "deny-ssh"
-  network = google_compute_network.vpc_network.name
+# resource "google_compute_firewall" "deny_ssh" {
+#   name    = "deny-ssh"
+#   network = google_compute_network.vpc_network.name
  
-  deny {
-    protocol = var.protocol
-    ports    = ["22"]
-  }
+#   deny {
+#     protocol = var.protocol
+#     ports    = ["22"]
+#   }
  
-  source_ranges = ["0.0.0.0/0"] // Applies the rule to all incoming traffic
-  target_tags   = ["http-server", "https-server"]
-}
+#   source_ranges = ["0.0.0.0/0"] 
+#   target_tags   = ["http-server", "https-server"]
+# }
  
  
 resource "google_compute_instance" "webapp_instance" {
@@ -84,18 +84,29 @@ resource "google_compute_instance" "webapp_instance" {
     auto_delete = var.auto_delete
  
     initialize_params {
-      image = "projects/iacvpc/global/images/my-custom-image-20240225010320"
+      image = "projects/iacvpc/global/images/my-custom-image-20240229051038"
       size  = var.instancesize
       type  = var.instancetype
     }
  
     mode = var.instancemode
   }
- 
+  metadata = {
+    startup-script = <<-EOT
+#!/bin/bash
+echo -e "DB_HOST=${length(google_sql_database_instance.db_instance.ip_address) > 0 ? google_sql_database_instance.db_instance.ip_address[0].ip_address : null}\nUSERNAME=${google_sql_user.users.name}\nPASSWORD=${random_password.password.result}\nDBNAME=${google_sql_database.database.name}" > /tmp/.env
+sudo su
+sudo mv -f /tmp/.env /home/csye6225/webapp-main/.env
+sudo chown -R csye6225:csye6225 /home/csye6225/webapp-main
+sudo systemctl restart csye6225
+EOT
+  } 
  
   machine_type = var.instancemachinetype
   name         = var.instancename
- 
+  depends_on = [
+    google_compute_network.vpc_network, google_compute_subnetwork.webapp, google_sql_database_instance.db_instance
+  ]
   network_interface {
     access_config {
       network_tier = var.instancenetworktier
@@ -103,9 +114,91 @@ resource "google_compute_instance" "webapp_instance" {
  
     subnetwork = google_compute_subnetwork.webapp.self_link
   }
- 
- 
-  zone = var.zone
-  tags = ["http-server", "https-server"]
 }
+resource "google_compute_global_address" "private_ip" {
+    project = var.project_id
+    name          = "my-private-ip"
+    purpose       = "VPC_PEERING"
+    address_type  = "INTERNAL"
+    prefix_length = 16
+    network       = google_compute_network.vpc_network.self_link
+}
+ 
+resource "google_service_networking_connection" "private_vpc_connection" {
+ 
+  network                 = google_compute_network.vpc_network.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_ip.name]
+  depends_on = [
+        google_compute_network.vpc_network,
+        google_project_service.service_networking,
+        google_compute_global_address.private_ip
+   ]
+}
+ 
+ 
+resource "google_project_service" "service_networking" {
+  service = "servicenetworking.googleapis.com"
+  disable_on_destroy = true
+}
+ 
+ 
+
+ 
+resource "google_sql_database_instance" "db_instance" {
+  project = var.project_id
+  name                 = "webappsdb-2"
+  region               = var.region
+  database_version     = "MYSQL_8_0" 
+  deletion_protection  = false
+ 
+  depends_on = [google_service_networking_connection.private_vpc_connection] 
+  settings {
+    tier = "db-f1-micro"
+    availability_type   = "REGIONAL"
+    disk_type           = "pd_ssd"
+    disk_size           = 100
+ 
+    backup_configuration {
+      enabled            = true  
+      start_time         = "03:00"  
+      location           = "us-central1"  
+      binary_log_enabled = true
+    }
+ 
+    ip_configuration {
+      ipv4_enabled    = false
+      private_network = google_compute_network.vpc_network.id
+    }
+ 
+  }
+}
+ 
+ 
+resource "google_sql_database" "database" {
+  name     = "webapp"
+  instance = google_sql_database_instance.db_instance.name
+}
+ 
+resource "google_sql_user" "users" {
+  name     = "webapp"
+  instance = google_sql_database_instance.db_instance.name
+  password = random_password.password.result
+}
+ 
+resource "random_password" "password" {
+  length           = 16
+  special          = false
+}
+ 
+ 
+provider "google-beta" {
+  region = var.region
+  zone   = var.zone
+}
+ 
+
+ 
+
+
 
