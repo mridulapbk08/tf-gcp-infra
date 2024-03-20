@@ -127,3 +127,23 @@ variable "auto_delete" {
   description = "The next hop gateway used for routing traffic."
   type        = bool
 }
+
+
+variable "domainname" {
+  description = "domainname."
+  type        = string
+}
+
+
+variable "dnszone" {
+  description = "dnszone."
+  type        = string
+}
+
+
+
+
+variable "account_id" {
+  description = "service accountid."
+  type        = string
+}

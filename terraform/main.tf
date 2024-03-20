@@ -8,12 +8,19 @@ terraform {
 }
 
 provider "google" {
-  credentials = file("iacvpc-698253216ddf.json")
+  credentials = file("iacvpc-df8e76bed914.json")
 
   project = var.project_id
   region  = var.region
   zone    = var.zone
 }
+
+resource "google_service_account" "mywebapp_service_account" {
+  account_id   = var.account_id
+  display_name = " MyWebapp Service Account"
+  project = var.project_id
+}
+
 #creating a vpc
 resource "google_compute_network" "vpc_network" {
   name                    = var.my_personal_vpc_network
@@ -84,7 +91,7 @@ resource "google_compute_instance" "webapp_instance" {
     auto_delete = var.auto_delete
  
     initialize_params {
-      image = "projects/iacvpc/global/images/my-custom-image-20240229051038"
+      image = "projects/iacvpc/global/images/my-custom-image-20240319065110"
       size  = var.instancesize
       type  = var.instancetype
     }
@@ -98,12 +105,18 @@ echo -e "DB_HOST=${length(google_sql_database_instance.db_instance.ip_address) >
 sudo su
 sudo mv -f /tmp/.env /home/csye6225/webapp-main/.env
 sudo chown -R csye6225:csye6225 /home/csye6225/webapp-main
-sudo systemctl restart csye6225
+sudo systemctl restart webapp
 EOT
   } 
+
+   service_account {
+    email  = google_service_account.mywebapp_service_account.email
+    scopes = ["cloud-platform"]  
+  }
  
   machine_type = var.instancemachinetype
   name         = var.instancename
+  tags   = ["http-server", "https-server"]
   depends_on = [
     google_compute_network.vpc_network, google_compute_subnetwork.webapp, google_sql_database_instance.db_instance
   ]
@@ -147,7 +160,7 @@ resource "google_project_service" "service_networking" {
  
 resource "google_sql_database_instance" "db_instance" {
   project = var.project_id
-  name                 = "webappsdb-2"
+  name                 = "webappsdb-6"
   region               = var.region
   database_version     = "MYSQL_8_0" 
   deletion_protection  = false
@@ -160,9 +173,7 @@ resource "google_sql_database_instance" "db_instance" {
     disk_size           = 100
  
     backup_configuration {
-      enabled            = true  
-      start_time         = "03:00"  
-      location           = "us-central1"  
+      enabled            = true
       binary_log_enabled = true
     }
  
@@ -196,7 +207,33 @@ provider "google-beta" {
   region = var.region
   zone   = var.zone
 }
+
+resource "google_dns_record_set" "a_record" {
+  name         = var.domainname
+  type         = "A"
+  ttl          = 300
+  managed_zone = var.dnszone   
+  rrdatas      = [google_compute_instance.webapp_instance.network_interface.0.access_config.0.nat_ip]
+}
  
+resource "google_project_iam_binding" "logging_admin_binding" {
+  project = var.project_id
+  role    = "roles/logging.admin"
+  members = [
+    "serviceAccount:${google_service_account.mywebapp_service_account.email}",
+  ]
+}
+
+resource "google_project_iam_binding" "monitoring_metric_writer_binding" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  members = [
+    "serviceAccount:${google_service_account.mywebapp_service_account.email}",
+  ]
+}
+
+
+
 
  
 
