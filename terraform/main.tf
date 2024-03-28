@@ -412,7 +412,7 @@ resource "google_project_iam_member" "cloudbuild_worker_pool_user1" {
 }
 
 data "google_storage_bucket" "bucket" {
-  name = "my_storagebucket"
+  name = "mridula-storagebucket"
 }
 
 data "google_storage_bucket_object" "object" {
