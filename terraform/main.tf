@@ -171,7 +171,7 @@ resource "google_compute_network_peering_routes_config" "default" {
  
 resource "google_project_service" "service_networking" {
   service = "servicenetworking.googleapis.com"
-  # disable_on_destroy = true
+  disable_on_destroy = true
 }
  
  
