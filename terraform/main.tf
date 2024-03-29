@@ -2,7 +2,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "5.0.0"
+      version = ">5.0.0"
     }
   }
 }
@@ -19,12 +19,14 @@ resource "google_service_account" "mywebapp_service_account" {
   account_id   = var.account_id
   display_name = " MyWebapp Service Account"
   project = var.project_id
+  create_ignore_already_exists = true
 }
 
 resource "google_service_account" "cloud_function_service_account" {
   account_id   = "cloudfunction-service-account"
   display_name = "My Cloud Function Service Account"
   project      = var.project_id
+  create_ignore_already_exists = true
 }
 
 #creating a vpc
@@ -257,7 +259,7 @@ resource "google_vpc_access_connector" "connector" {
  name          = "vpc-connector"
  ip_cidr_range = "10.8.0.0/28"
  network       = google_compute_network.vpc_network.self_link
- machine_type  =  "e2-standard-4"
+ machine_type  =  "f1-micro"
  min_instances = 2
  max_instances = 3
  depends_on   = [google_compute_network.vpc_network]
