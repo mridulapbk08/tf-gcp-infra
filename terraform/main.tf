@@ -457,9 +457,9 @@ resource "google_cloudfunctions2_function" "cloud_functions2" {
 
     environment_variables = {
       MAILGUN_DOMAIN    = "mridulaprabhakar.me"
-      MAILGUN_API_KEY   = "bccfee84b82e8f79d672133a46aa28af-f68a26c9-fd88ff58"
+      MAILGUN_API_KEY   = var.api_key
       DATABASE_URL      = "mysql+pymysql://${google_sql_user.users.name}:${random_password.password.result}@${length(google_sql_database_instance.db_instance.ip_address) > 0 ? google_sql_database_instance.db_instance.ip_address[0].ip_address : null}/${google_sql_database.database.name}"
-      email             = "prabhakar.m@northeastern.edu"
+      # email             = "prabhakar.m@northeastern.edu"
     }
     ingress_settings        = "ALLOW_INTERNAL_ONLY"
     service_account_email   = google_service_account.mywebapp_service_account.email
