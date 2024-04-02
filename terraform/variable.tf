@@ -147,3 +147,11 @@ variable "account_id" {
   description = "service accountid."
   type        = string
 }
+
+
+
+
+variable "api_key" {
+  description = "api key."
+  type        = string
+}
