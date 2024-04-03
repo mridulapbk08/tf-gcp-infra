@@ -56,6 +56,18 @@ resource "google_compute_subnetwork" "db" {
 
 }
 
+
+#creating a subnet for load balancer
+resource "google_compute_subnetwork" "load_balancer_subnet" {
+  name = "load_balancer_subnet"
+  ip_cidr_range = "10.3.0.0/24"
+  purpose = "REGIONAL_MANAGED_PROXY"
+  role = "ACTIVE"
+  network = google_compute_network.vpc_network.self_link
+  region = var.region
+  
+}
+
 #adding route to "webapp"
 resource "google_compute_route" "route" {
   name             = var.web_app_route
@@ -66,7 +78,7 @@ resource "google_compute_route" "route" {
   priority         = 100
 }
 
-resource "google_compute_firewall" "allow_application_traffic" {
+resource "google_compute_firewall" "allow_applica\tion_traffic" {
   name    = var.firewall
   network = google_compute_network.vpc_network.name
  
@@ -93,19 +105,26 @@ resource "google_compute_firewall" "allow_application_traffic" {
 #   target_tags   = ["http-server", "https-server"]
 # }
  
- 
-resource "google_compute_instance" "webapp_instance" {
-  boot_disk {
-    auto_delete = var.auto_delete
- 
-    initialize_params {
-      image = "projects/iacvpc/global/images/my-custom-image-20240319065110"
-      size  = var.instancesize
-      type  = var.instancetype
-    }
- 
-    mode = var.instancemode
-  }
+
+
+
+
+
+
+
+# compute region instance 
+resource "google_compute_region_instance_template" "wenapp_template" {
+  name_prefix = "webapp-region-instance-template"
+  machine_type = var.instancemachinetype
+  region = var.region
+
+  depends_on = [ google_compute_subnetwork.webapp,
+                 google_sql_database_instance.db_instance,
+                 google_sql_database.database,
+                 google_sql_user.users,
+                 google_service_account.mywebapp_service_account
+                 ]          
+
   metadata = {
     startup-script = <<-EOT
 #!/bin/bash
@@ -115,27 +134,270 @@ sudo mv -f /tmp/.env /home/csye6225/webapp-main/.env
 sudo chown -R csye6225:csye6225 /home/csye6225/webapp-main
 sudo systemctl restart webapp
 EOT
-  } 
-  machine_type = var.instancemachinetype
-  name         = var.instancename
-  tags   = ["http-server", "https-server"]
-  depends_on = [
-    google_compute_network.vpc_network, google_compute_subnetwork.webapp, google_sql_database_instance.db_instance
-  ]
-   service_account {
-    email  = google_service_account.mywebapp_service_account.email
-    scopes = ["cloud-platform"]  
   }
- 
+
+  disk{
+    source_image = "projects/iacvpc/global/images/my-custom-image-20240319065110"
+    auto_delete = var.auto_delete
+    boot = true
+    disk_size_gb = var.instancesize
+    disk_type = var.instancetype
+  }
 
   network_interface {
+    network = google_compute_network.vpc_network.id
+    subnetwork = google_compute_subnetwork.webapp.id
     access_config {
       network_tier = var.instancenetworktier
     }
- 
-    subnetwork = google_compute_subnetwork.webapp.self_link
+  }
+
+  
+  service_account {
+    email = google_service_account.mywebapp_service_account.emai
+    scopes = ["cloud-platform"]
+  }
+
+  tags   = ["http-server", "https-server"]
+
+}
+
+
+# Compute Health Check
+resource "google_compute_health_check" "webapp_health_check" {
+  name               = "webapp-health-check"
+  check_interval_sec = 5
+  timeout_sec        = 5
+  healthy_threshold = 1
+  unhealthy_threshold = 2
+
+  http_health_check {
+    port = "5000"
+    request_path = "/healthz"
   }
 }
+
+# Compute Autoscaler
+resource "google_compute_autoscaler" "webapp_autoscaler" {
+  name               = "webapp-autoscaler"
+  region             = var.region
+  target             = google_compute_instance_group_manager.webapp_instance_group_manager.self_link
+  autoscaling_policy {
+    min_replicas       = 2
+    max_replicas       = 10
+    cool_down_period_sec = 60
+    cpu_utilization {
+      target = 0.05
+    }
+  }
+}
+
+# Compute Instance Group Manager
+resource "google_compute_region_instance_group_manager" "webapp_instance_group_manager" {
+  name               = "webapp-instance-group-manager"
+  version {
+    name              = "instance_manager_version"
+    instance_template = google_compute_instance_template.webapp_template.self_link
+  }
+  named_port {
+    name = "http"
+    port = "5000"
+  }
+  distribution_policy_zone = ["us-central1-b", "us-central1-c"]
+  region                   = var.region
+  base_instance_name = "webapp"
+
+  auto_healing_policies {
+    health_check = google_compute_health_check.webapp_health_check.self_link
+    initial_delay_sec = 300
+  }
+}
+
+resource "google_compute_ssl_certificate" "default" {
+  name        = "webapp-google-managed-ssl-certificate"
+  provider = google-beta
+  project     = var.project_id
+  managed {
+    domains = [var.domainname]
+  }
+}
+
+# Firewall Rule - Allow Load Balancer Access
+resource "google_compute_firewall" "default" {
+  name    = "allow-lb-access"
+  direction = "INGRESS"
+  network = google_compute_network.vpc_network.id
+  source_ranges =["130.211.0.0/22","35.191.0.0/16"]
+  
+ 
+  allow {
+    protocol = var.protocol
+    ports    = ["5000"] 
+  }
+ 
+  source_tags = ["http-server", "https-server"]  # Google Load Balancer IP ranges
+}
+
+# Load Balancer
+resource "google_compute_global_forwarding_rule" "lb_forwarding_rule" {
+  name       = "webapp-lb-rule"
+  ip_protocol = "TCP"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  target     = google_compute_target_https_proxy.default.id
+  port_range = "443"
+}
+
+
+
+resource "google_compute_target_https_proxy" "default" {
+  name               = "webapp-lb-proxy"
+  url_map            = google_compute_url_map.default.id
+  ssl_certificates   = [google_compute_managed_ssl_certificate.default.id]
+  depends_on = [ google_compute_managed_ssl_certificate.default ]
+}
+
+resource "google_compute_url_map" "default" {
+  name               = "webapp-lb-url-map"
+  default_service    = google_compute_backend_service.default.id
+}
+
+resource "google_compute_backend_service" "lb_backend_service" {
+  name               = "webapp-lb-backend-service"
+  project            = var.project_id
+  provider            = google-beta
+  protocol           =  "HTTP"
+  port_name          = "http"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  locality_lb_policy = "ROUND_ROBIN"
+  timeout_sec        = 30
+  enable_cdn = false
+  health_checks      = [google_compute_health_check.webapp_health_check.id]
+  backend {
+    group = google_compute_region_instance_group_manager.webapp_instance_group_manager.instance_group
+    balancing_mode = "UTILIZATION"
+    capacity_scaler = 1.0
+    max_utilization = 0.05
+  }
+  log_config {
+    enable = true
+  }
+  depends_on = [ google_compute_health_check.webapp_health_check, google_compute_region_instance_group_manager.webapp_instance_group_manager ]
+}
+
+# DNS Record Update
+resource "google_dns_record_set" "a_record" {
+  name         = var.domainname
+  type         = "A"
+  ttl          = 300
+  managed_zone = var.dnszone   
+  rrdatas      = [google_compute_global_forwarding_rule.lb_forwarding_rule.ip_address]
+}
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+# resource "google_compute_instance" "webapp_instance" {
+#   boot_disk {
+#     auto_delete = var.auto_delete
+ 
+#     initialize_params {
+#       image = "projects/iacvpc/global/images/my-custom-image-20240319065110"
+#       size  = var.instancesize
+#       type  = var.instancetype
+#     }
+ 
+#     mode = var.instancemode
+#   }
+#   metadata = {
+#     startup-script = <<-EOT
+# #!/bin/bash
+# echo -e "DB_HOST=${length(google_sql_database_instance.db_instance.ip_address) > 0 ? google_sql_database_instance.db_instance.ip_address[0].ip_address : null}\nUSERNAME=${google_sql_user.users.name}\nPASSWORD=${random_password.password.result}\nDBNAME=${google_sql_database.database.name}" > /tmp/.env
+# sudo su
+# sudo mv -f /tmp/.env /home/csye6225/webapp-main/.env
+# sudo chown -R csye6225:csye6225 /home/csye6225/webapp-main
+# sudo systemctl restart webapp
+# EOT
+#   } 
+#   machine_type = var.instancemachinetype
+#   name         = var.instancename
+#   tags   = ["http-server", "https-server"]
+#   depends_on = [
+#     google_compute_network.vpc_network, google_compute_subnetwork.webapp, google_sql_database_instance.db_instance
+#   ]
+#    service_account {
+#     email  = google_service_account.mywebapp_service_account.email
+#     scopes = ["cloud-platform"]  
+#   }
+ 
+
+#   network_interface {
+#     access_config {
+#       network_tier = var.instancenetworktier
+#     }
+ 
+#     subnetwork = google_compute_subnetwork.webapp.self_link
+#   }
+# }
 resource "google_compute_global_address" "private_ip" {
     project = var.project_id
     name          = "my-private-ip"
