@@ -22,3 +22,8 @@ rad.json
 TestResults.xml
 
 *.json
+.terraformrc
+terraform.rc
+
+*.iml
+.DS_Store
