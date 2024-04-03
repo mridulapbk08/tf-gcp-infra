@@ -450,7 +450,7 @@ resource "google_sql_database_instance" "db_instance" {
 
   depends_on = [google_service_networking_connection.private_vpc_connection]
   settings {
-    tier              = "db-f1-micro"
+    tier              = "db-n1-standard-4"
     availability_type = "REGIONAL"
     disk_type         = "pd_ssd"
     disk_size         = 100
