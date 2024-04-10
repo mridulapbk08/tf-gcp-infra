@@ -8,7 +8,7 @@ terraform {
 }
 
 provider "google" {
-  credentials = file("iacvpc-df8e76bed914.json")
+  # credentials = file("iacvpc-df8e76bed914.json")
 
   project = var.project_id
   region  = var.region
@@ -137,11 +137,14 @@ EOT
   }
 
   disk {
-    source_image = "projects/iacvpc/global/images/my-custom-image-20240319065110"
+    source_image = var.srcimage
     auto_delete  = var.auto_delete
     boot         = true
     disk_size_gb = var.instancesize
     disk_type    = var.instancetype
+    disk_encryption_key {
+      kms_key_self_link = google_kms_crypto_key.vm_key.id
+    }
   }
 
   network_interface {
@@ -163,13 +166,25 @@ EOT
 }
 
 
+#service account update
+resource "google_kms_crypto_key_iam_binding" "vm_key" {
+  provider      = google-beta
+  crypto_key_id = google_kms_crypto_key.vm_key.id
+  role          = "roles/owner"
+
+  members = [
+    "serviceAccount:service-892626759105@compute-system.iam.gserviceaccount.com",
+  ]
+}
+
+
 # Compute Health Check
 resource "google_compute_health_check" "webapp_health_check" {
   name                = "webapp-health-check"
-  check_interval_sec  = 5
-  timeout_sec         = 5
-  healthy_threshold   = 1
-  unhealthy_threshold = 2
+  check_interval_sec  = var.check_intervalsec
+  timeout_sec         = var.timeoutsec
+  healthy_threshold   = var.healthythreshold
+  unhealthy_threshold = var.unhealthythreshold
 
   http_health_check {
     port         = "5000"
@@ -183,11 +198,11 @@ resource "google_compute_region_autoscaler" "webapp_autoscaler" {
   region = var.region
   target = google_compute_region_instance_group_manager.webapp_instance_group_manager.self_link
   autoscaling_policy {
-    min_replicas         = 2
-    max_replicas         = 10
-    cooldown_period = 60
+    min_replicas         = var.minreplicas
+    max_replicas         = var.maxreplicas
+    cooldown_period = var.cooldownperiod
     cpu_utilization {
-      target = 0.05
+      target = var.cputarget
     }
   }
 }
@@ -227,7 +242,7 @@ resource "google_compute_firewall" "default" {
   name          = "allow-lb-access"
   direction     = "INGRESS"
   network       = google_compute_network.vpc_network.id
-  source_ranges = ["130.211.0.0/22", "35.191.0.0/16"]
+  source_ranges = var.sourceranges
 
 
   allow {
@@ -438,9 +453,28 @@ resource "google_project_service" "service_networking" {
   disable_on_destroy = true
 }
 
+resource "random_id" "db_name_suffix" {
+  byte_length = 4
+}
+
+
+resource "google_project_service_identity" "gcp_sa_cloud_sql" {
+  project  = var.project_id
+  provider = google-beta
+  service  = "sqladmin.googleapis.com"
+}
 
 
 
+resource "google_kms_crypto_key_iam_binding" "crypto_key" {
+  provider      = google-beta
+  crypto_key_id = google_kms_crypto_key.cloudsql_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+
+  members = [
+    "serviceAccount:${google_project_service_identity.gcp_sa_cloud_sql.email}",
+  ]
+}
 resource "google_sql_database_instance" "db_instance" {
   project             = var.project_id
   name                = "webappsdb-6"
@@ -468,6 +502,9 @@ resource "google_sql_database_instance" "db_instance" {
     }
 
   }
+
+  encryption_key_name = google_kms_crypto_key.cloudsql_key.id
+
 }
 
 
@@ -669,13 +706,51 @@ resource "google_project_iam_member" "cloudbuild_worker_pool_user1" {
   member  = "serviceAccount:${google_service_account.mywebapp_service_account.email}"
 }
 
+
+
+
+
+
+resource "google_kms_crypto_key_iam_binding" "bucket_key" {
+  provider      = google-beta
+  crypto_key_id = google_kms_crypto_key.bucket_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+
+  # Replace the service account email below with the correct one
+  members = [
+    "serviceAccount:service-892626759105@gs-project-accounts.iam.gserviceaccount.com",
+  ]
+
+  depends_on = [
+    google_kms_crypto_key.bucket_key
+  ]
+}
+
+
+
+
 data "google_storage_bucket" "bucket" {
   name = "mridula-storagebucket"
+  location                    = "US-CENTRAL1"
+  uniform_bucket_level_access = true
+  encryption {
+    default_kms_key_name = google_kms_crypto_key.bucket_key.id
+  }
+
+  depends_on = [
+    google_kms_crypto_key_iam_binding.bucket_key
+  ]
 }
+
 
 data "google_storage_bucket_object" "object" {
   name   = "Serverless_object.zip"
-  bucket = data.google_storage_bucket.bucket.name
+  bucket = google_storage_bucket.bucket.name
+  source = "Serverless_object.zip"
+
+  depends_on = [
+    google_storage_bucket.bucket
+  ]
 }
 
 
@@ -697,8 +772,8 @@ resource "google_cloudfunctions2_function" "cloud_functions2" {
     entry_point = "hello_pubsub" # entry point
     source {
       storage_source {
-        bucket = data.google_storage_bucket.bucket.name
-        object = data.google_storage_bucket_object.object.name
+        bucket = google_storage_bucket.bucket.name
+        object = google_storage_bucket_object.object.name
       }
     }
   }
@@ -749,3 +824,81 @@ resource "google_project_iam_binding" "cloud_function_invoker_binding" {
   ]
 }
 
+
+
+resource "google_kms_key_ring" "keyring" {
+  name     = "my-keyring-${random_id.db_name_suffix.hex}"
+  location = var.region
+}
+
+# Key for Virtual Machines
+resource "google_kms_crypto_key" "vm_key" {
+  name            = "vm-key-${random_id.db_name_suffix.hex}"
+  key_ring        = google_kms_key_ring.key_ring.id
+  rotation_period = var.rotation_period
+
+  version_template {
+    algorithm = "GOOGLE_SYMMETRIC_ENCRYPTION"
+  }
+}
+
+
+# Key for CloudSQL Instances
+resource "google_kms_crypto_key" "cloudsql_key" {
+  name            = "cloudsql_key-${random_id.db_name_suffix.hex}"
+  key_ring        = google_kms_key_ring.key_ring.id
+  rotation_period = var.rotation_period
+
+  version_template {
+    algorithm = "GOOGLE_SYMMETRIC_ENCRYPTION"
+  }
+}
+
+
+# Key for Cloud Storage Buckets
+resource "google_kms_crypto_key" "bucket_key" {
+  name            = "bucket_key-${random_id.db_name_suffix.hex}"
+  key_ring        = google_kms_key_ring.key_ring.id
+  rotation_period = var.rotation_period
+
+  version_template {
+    algorithm = "GOOGLE_SYMMETRIC_ENCRYPTION"
+  }
+}
+
+
+resource "google_secret_manager_secret" "default" {
+  for_each  = local.secrets
+  project   = var.project_id
+  secret_id = each.key
+
+
+  replication {
+    auto {}
+  }
+}
+
+
+resource "google_secret_manager_secret_version" "default" {
+  for_each = local.secrets
+  secret   = google_secret_manager_secret.default[each.key].id
+
+  secret_data = each.value
+  depends_on = [
+    google_secret_manager_secret.default
+  ]
+}
+
+locals {
+  secrets = {
+    "instance_template_name" : "webapp-template20240410094113195800000001-20240410-094927"
+    "project_id" : "infra-0646"
+    "region" : "us-east1"
+    "machine_type" : "e2-medium"
+    "subnet" : "webapp-subnet"
+    "service_account_email" : "webapp-service-account@infra-0646.iam.gserviceaccount.com"
+    "group_manager_identifier" : "webapp-manager"
+    "startup-script" : "#!/bin/bash\necho -e \"DB_HOST=${length(google_sql_database_instance.db_instance.ip_address) > 0 ? google_sql_database_instance.db_instance.ip_address[0].ip_address : null}\nUSERNAME=${google_sql_user.users.name}\nPASSWORD=${random_password.password.result}\nDBNAME=${google_sql_database.database.name}\" > /tmp/.env \nsudo su\nsudo mv -f /tmp/.env /home/csye6225/webapp-main/.env\nsudo chown -R csye6225:csye6225 /home/csye6225/webapp-main\nsudo systemctl restart webapp"
+    "crypto_key" = google_kms_crypto_key.vm_key.id
+  }
+}
