@@ -155,3 +155,70 @@ variable "api_key" {
   description = "api key."
   type        = string
 }
+
+
+variable "srcimage" {
+  description = "source image"
+  type        = string  
+}
+
+
+variable "check_intervalsec" {
+  description = "source image"
+  type        = number  
+}
+
+
+variable "timeoutsec" {
+  description = "source image"
+  type        = number  
+}
+
+
+variable "healthythreshold" {
+  description = "source image"
+  type        = number  
+}
+
+
+variable "unhealthythreshold" {
+  description = "source image"
+  type        = number  
+}
+
+
+variable "minreplicas" {
+  description = "source image"
+  type        = number  
+}
+
+
+variable "maxreplicas" {
+  description = "source image"
+  type        = number  
+}
+
+
+
+
+variable "cooldownperiod" {
+  description = "source image"
+  type        = number  
+}
+
+
+variable "cputarget" {
+  description = "source image"
+  type        = number  
+}
+
+variable "sourceranges" {
+  description = "source image"
+  type        = list(string)  
+}
+
+
+variable "rotation_period" {
+  description = "source image"
+  type        = string
+}
